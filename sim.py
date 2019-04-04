@@ -86,7 +86,7 @@ def give_break():
                 yield req
                 print("---------------Expert operator takes a break at " + str(env.now))
                 yield env.timeout(3)
-                print("---------------Expert operator comes again")    
+                print("---------------Expert operator comes again at "+ str(env.now))    
 
 
 """ ------------------Simulation Running Area------------------  """
