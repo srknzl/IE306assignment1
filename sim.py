@@ -3,7 +3,7 @@ import random
 import numpy as np
 
 #---------------------Constants-------------------- 
-RANDOM_SEED = 50
+RANDOM_SEED = 978
 random.seed(RANDOM_SEED)
 INTERARRIVAL_RATE = 1/14.3
 RENEGE_RATE=1/60.0
@@ -11,11 +11,15 @@ EXPERT_RATE=1/10.2
 BREAK_RATE=1/60.0
 #---------------------------------------------------
 
-#-------------------Statistic container definitions------------
+#-------------------Statistic and variable definitions------------
 service_times = [] #Duration of the conversation between the customer and the front operator (Service time)
 service_times2 = [] #Duration of the conversation between the customer and the expert operator (Service time)
 queue2_waiting_times=[] # Waiting time of customers in the second queue (expert), used to calculate a statistic
-total_waiting_times= [] # Total waiting time is a customer's waiting time in 1st queue + waiting time in 2nd queue. 
+total_waiting_time_to_total_system_time_ratios= [] # All customers' total waiting time to total system time ratios 
+total_waiting_times = [] # Total waiting time is a customer's waiting time in 1st queue + waiting time in 2nd queue. 
+break_decision = False # Becomes true when expert operator decides to take a break
+customers_to_finish_to_break = [] # This is a list of customer numbers that are needed to be served 
+#in order expert operator to be able take a break
 # -------------------------------------------------------------------------
 
 class Customer(object):
@@ -29,6 +33,7 @@ class Customer(object):
     def call(self):
         print('%s initiated a call at %g' % (self.name, self.env.now))
         total_waiting_time = 0
+        total_system_time = 0
         with operator.request() as req:
             yield req
             print('%s is assigned to the front operator at %g' % (self.name, self.env.now))
@@ -44,13 +49,21 @@ class Customer(object):
                 print('%s is assigned to the expert operator at %g' % (self.name, self.env.now))
                 total_waiting_time += self.env.now - expert_arrival
                 queue2_waiting_times.append(self.env.now - expert_arrival)
-                total_waiting_times.append(total_waiting_time)
                 yield self.env.process(self.ask_question2())
                 print('%s is done with the expert operator at %g' % (self.name, self.env.now))
-                total_time = self.env.now
+                total_system_time = self.env.now - self.arrival_t
+                total_waiting_times.append(total_waiting_time)
+                total_waiting_time_to_total_system_time_ratios.append(total_waiting_time/total_system_time)
+                if self.name == "Cust " + str(CUSTOMER_NUMBER):
+                    total_time = self.env.now
             else:
                 print("---------------Customer "+str(self.name)+" reneged after "+ str(self.env.now - expert_arrival) + " of waiting.")
-                total_time = self.env.now                
+                total_system_time = self.env.now - self.arrival_t
+                total_waiting_time += self.env.now - expert_arrival                
+                total_waiting_time_to_total_system_time_ratios.append(total_waiting_time/total_system_time)
+                total_waiting_times.append(total_waiting_time)                
+                if self.name == "Cust " + str(CUSTOMER_NUMBER):
+                    total_time = self.env.now                
             
     def ask_question(self):
         m1=7.2                             
@@ -67,7 +80,6 @@ class Customer(object):
         service_times2.append(duration)
     
 def customer_generator(env, operator):
-    """Generate new cars that arrive at the gas station."""
     for i in range(CUSTOMER_NUMBER):
         duration = random.expovariate(INTERARRIVAL_RATE)
         yield env.timeout(duration)
@@ -77,20 +89,26 @@ def customer_generator(env, operator):
 
 def give_break():
     while(True):
-        if(last_came and (len(operator.queue) + operator.count + len(operator2.queue) + operator2.count == 0)): 
-            break
-        duration = random.expovariate(1/60.0)
-        yield env.timeout(duration)
-        if len(operator2.queue) == 0 and operator2.count == 0:
+        global break_decision
+        if(break_decision and any(check in customers_to_finish_to_break for check in operator2.queue)  ):
             with operator2.request() as req:
                 yield req
                 print("---------------Expert operator takes a break at " + str(env.now))
                 yield env.timeout(3)
-                print("---------------Expert operator comes again at "+ str(env.now))    
+                print("---------------Expert operator comes again at " + str(env.now))
+                break_decision = False  
+        if (last_came and (len(operator.queue) + operator.count + len(operator2.queue) + operator2.count == 0)):
+            break
+        duration = random.expovariate(1/60.0)
+        yield env.timeout(duration)
+        if not break_decision:
+            global customers_to_finish_to_break
+            break_decision = True
+            customers_to_finish_to_break = operator2.queue
 
-
+            
 """ ------------------Simulation Running Area------------------  """
-last_came = False   
+last_came = False
 CUSTOMER_NUMBER = 1000  
 env = simpy.Environment()
 operator = simpy.Resource(env, capacity = 1) # front
@@ -121,33 +139,35 @@ for i in queue2_waiting_times:
 print("Utilization of operator 1 is:" + str(busy_time_front/total_time))
 print("Utilization of operator 2 is:" + str(busy_time_expert/total_time))
 print("Average total waiting time is:" + str(total_waiting_time/CUSTOMER_NUMBER))
-print("Maximum total waiting time to total system time ratio " + str(max(total_waiting_times)/total_time))
+print("Maximum total waiting time to total system time ratio " + str(max(total_waiting_time_to_total_system_time_ratios)))
 print("Average number of people waiting to be served by the expert operator " + str(total_wait_in_queue2/total_time))        
 #------------------------------------------------------------------------
 
 #---------------------Prepare the environment to run the simulation again with 5000 customers ----------------
 CUSTOMER_NUMBER=5000
 last_came = False   
-
+break_decision = False   
 print("--------------- CUSTOMER NUMBER 5000 ------------------")
 env = simpy.Environment()
 operator = simpy.Resource(env, capacity = 1)
 operator2= simpy.Resource(env, capacity = 1)
 env.process(customer_generator(env, operator))
 break_process = env.process(give_break())
+env.run()
 #------------------Initialization of statistic counters------------------
 busy_time_expert = 0
 busy_time_front = 0
 total_waiting_time = 0
 total_waiting_times = []
 total_wait_in_queue2 = 0
+total_waiting_time_to_total_system_time_ratios = []
 total_time = 0
 service_times = []
 service_times2 = []
 #------------------------------------------------------------------------
 
 #---------------Run and collect statistics ------------------------------
-env.run()
+
 
 for i in service_times:
     busy_time_front += i
@@ -161,7 +181,7 @@ for i in queue2_waiting_times:
 print("Utilization of operator 1 is:" + str(busy_time_front/total_time))
 print("Utilization of operator 2 is:" + str(busy_time_expert/total_time))
 print("Average total waiting time is:" + str(total_waiting_time/CUSTOMER_NUMBER))
-print("Maximum total waiting time to total system time ratio " + str(max(total_waiting_times)/total_time))
+print("Maximum total waiting time to total system time ratio " + str(max(total_waiting_time_to_total_system_time_ratios)))
 print("Average number of people waiting to be served by the expert operator " + str(total_wait_in_queue2/total_time)) 
 
 
