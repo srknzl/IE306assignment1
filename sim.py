@@ -32,20 +32,20 @@ class Customer(object):
     
     def call(self):
         print('%s initiated a call at %g' % (self.name, self.env.now))
-        total_waiting_time = 0
-        total_system_time = 0
+        total_waiting_time = 0 # Total waiting time means waiting time in first queue + second queue
+        total_system_time = 0 #Total time a customer spends in the system 
         with operator.request() as req:
             yield req
             print('%s is assigned to the front operator at %g' % (self.name, self.env.now))
             total_waiting_time += self.env.now - self.arrival_t
-            yield self.env.process(self.ask_question())
+            yield self.env.process(self.ask_question()) # Wait to be served
             print('%s is done with the front operator at %g' % (self.name, self.env.now))
         expert_arrival = self.env.now
         with operator2.request() as req:
-            renege_duration = random.expovariate(RENEGE_RATE)
-            results = yield req | env.timeout(renege_duration)
+            renege_duration = random.expovariate(RENEGE_RATE) 
+            results = yield req | env.timeout(renege_duration) # Wait to be served or running out of patience, which is first 
             global total_time            
-            if req in results:
+            if req in results: # If served
                 print('%s is assigned to the expert operator at %g' % (self.name, self.env.now))
                 total_waiting_time += self.env.now - expert_arrival
                 queue2_waiting_times.append(self.env.now - expert_arrival)
@@ -54,20 +54,20 @@ class Customer(object):
                 total_system_time = self.env.now - self.arrival_t
                 total_waiting_times.append(total_waiting_time)
                 total_waiting_time_to_total_system_time_ratios.append(total_waiting_time/total_system_time)
-                if self.name == "Cust " + str(CUSTOMER_NUMBER):
+                if self.name == "Cust " + str(CUSTOMER_NUMBER): # Last customer's departure is total time because of FCFS principle
                     total_time = self.env.now
-            else:
+            else: # If reneged
                 print("---------------Customer "+str(self.name)+" reneged after "+ str(self.env.now - expert_arrival) + " of waiting.")
                 total_system_time = self.env.now - self.arrival_t
                 total_waiting_time += self.env.now - expert_arrival                
                 total_waiting_time_to_total_system_time_ratios.append(total_waiting_time/total_system_time)
                 total_waiting_times.append(total_waiting_time)                
-                if self.name == "Cust " + str(CUSTOMER_NUMBER):
+                if self.name == "Cust " + str(CUSTOMER_NUMBER): 
                     total_time = self.env.now                
             
     def ask_question(self):
         m1=7.2                             
-        v1=2.7
+        v1=2.7 # Lognormal dist of service time 1, set up
         mu1=np.log((m1**2/((v1**2+m1**2)**0.5)))
         variance1=np.log((v1**2+m1**2)/m1**2)
         duration = random.lognormvariate(mu1,variance1**0.5)
@@ -75,7 +75,7 @@ class Customer(object):
         service_times.append(duration)
         
     def ask_question2(self):
-        duration = random.expovariate(EXPERT_RATE)
+        duration = random.expovariate(EXPERT_RATE) 
         yield self.env.timeout(duration)
         service_times2.append(duration)
     
@@ -84,27 +84,30 @@ def customer_generator(env, operator):
         duration = random.expovariate(INTERARRIVAL_RATE)
         yield env.timeout(duration)
         Customer('Cust %s' %(i+1), env, operator)  
-    global last_came
+    global last_came # This variable is used to stop operator 2 from taking breaks
     last_came = True  
 
 def give_break():
     while(True):
         global break_decision
-        if(break_decision and any(check in customers_to_finish_to_break for check in operator2.queue)  ):
+        if(break_decision and not any(check in customers_to_finish_to_break for check in operator2.queue)):
+		# any(..) expression checks for any common elements in two lists and return true if there is.
+		# Overall if = if decision is taken and all the customers that are there when the decision is taken are done
             with operator2.request() as req:
                 yield req
                 print("---------------Expert operator takes a break at " + str(env.now))
                 yield env.timeout(3)
                 print("---------------Expert operator comes again at " + str(env.now))
                 break_decision = False  
-        if (last_came and (len(operator.queue) + operator.count + len(operator2.queue) + operator2.count == 0)):
+        if (last_came and (len(operator.queue) + operator.count + len(operator2.queue) + operator2.count == 0)): 
+		# If last customer came and no one in the queue and no one is being served by operator2 
             break
         duration = random.expovariate(1/60.0)
         yield env.timeout(duration)
-        if not break_decision:
+        if not break_decision: # If decision is not taken already take it
             global customers_to_finish_to_break
             break_decision = True
-            customers_to_finish_to_break = operator2.queue
+            customers_to_finish_to_break = operator2.queue #When decision taken record people in the queue 
 
             
 """ ------------------Simulation Running Area------------------  """
