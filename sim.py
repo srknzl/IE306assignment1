@@ -68,7 +68,7 @@ class Customer(object):
     def ask_question(self):
         m1=7.2                             
         v1=2.7
-        mu1=np.log((m1**2/((v1+m1**2)**0.5)))
+        mu1=np.log((m1**2/((v1**2+m1**2)**0.5)))
         variance1=np.log((v1**2+m1**2)/m1**2)
         duration = random.lognormvariate(mu1,variance1**0.5)
         yield self.env.timeout(duration)
@@ -153,7 +153,7 @@ operator = simpy.Resource(env, capacity = 1)
 operator2= simpy.Resource(env, capacity = 1)
 env.process(customer_generator(env, operator))
 break_process = env.process(give_break())
-env.run()
+
 #------------------Initialization of statistic counters------------------
 busy_time_expert = 0
 busy_time_front = 0
@@ -168,7 +168,7 @@ service_times2 = []
 
 #---------------Run and collect statistics ------------------------------
 
-
+env.run()
 for i in service_times:
     busy_time_front += i
 for i in service_times2:
